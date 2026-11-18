@@ -1,0 +1,14 @@
+# Southeast Asian countries, in the Nextstrain country vocabulary.
+# Each of these becomes its own deme; everywhere else falls back to its
+# Nextstrain region (see scripts/add-deme.py).
+Brunei
+Cambodia
+East Timor
+Indonesia
+Laos
+Malaysia
+Myanmar
+Philippines
+Singapore
+Thailand
+Vietnam

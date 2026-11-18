@@ -1,0 +1,40 @@
+# Extra centroids used by scripts/make-deme-lat-longs.py.
+#
+# These are consulted BEFORE Augur's built-in lat_longs.tsv, and cover:
+#   1. demes that Augur has no coordinates for because they are not countries
+#      or Nextstrain regions (Central America, Caribbean);
+#   2. country values present in the dengue metadata that are missing from
+#      Augur's built-in country list.
+#
+# geo_resolution<TAB>value<TAB>latitude<TAB>longitude
+
+# --- custom demes (sub-divisions of Nextstrain's "North America") ----------
+deme	Central America	13.000000	-85.500000
+deme	Caribbean	18.200000	-75.000000
+
+# --- countries missing from Augur's built-in lat_longs ---------------------
+# East Timor == Timor-Leste
+deme	East Timor	-8.874217	125.727539
+country	East Timor	-8.874217	125.727539
+# "Borneo" is an island shared by Indonesia/Malaysia/Brunei, not a country.
+# It appears as a country value in GenBank-derived metadata; we give it the
+# island centroid rather than silently dropping it from the map.
+deme	Borneo	0.950000	114.000000
+country	Borneo	0.950000	114.000000
+
+# These are only needed for the country-everywhere geo-resolution: their demes
+# (Oceania, Africa, Caribbean) already resolve via region/override.
+country	Samoa	-13.759029	-172.104629
+country	Cape Verde	16.002082	-24.013197
+country	Cook Islands	-21.236736	-159.777671
+country	Niue	-19.054445	-169.867233
+country	Virgin Islands	18.335765	-64.896335
+
+# Further country values appearing in DENV-1/2/3 that Augur lacks.
+country	Eritrea	15.179384	39.782334
+country	Nauru	-0.522778	166.931503
+country	Tonga	-21.178986	-175.198242
+country	Tuvalu	-7.109535	177.649292
+country	Netherlands Antilles	12.226079	-69.060087
+# "New Delhi" appears as a country value; it is a city in India.
+country	New Delhi	28.613939	77.209021

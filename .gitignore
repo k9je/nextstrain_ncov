@@ -69,3 +69,11 @@ narratives/*pdf
 
 # SLURM log files
 slurm-*.out
+
+# Analysis pipeline intermediates (461 MB) and large rasters.
+# Rebuild with: snakemake --configfile config.yaml && bash scripts/make-figures.sh
+analysis/results/
+analysis/logs/
+analysis/auspice/
+analysis/.snakemake/
+analysis/figures/*.png

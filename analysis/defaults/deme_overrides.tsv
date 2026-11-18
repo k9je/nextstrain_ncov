@@ -1,0 +1,57 @@
+# Country -> deme overrides used by scripts/add-deme.py
+#
+# Demes are defined as:
+#   * region == "Asia"  -> the COUNTRY is the deme
+#   * otherwise         -> the REGION is the deme
+#
+# This file overrides the second rule for individual countries, so that
+# Nextstrain's very coarse "North America" region (which lumps together the
+# USA/Canada/Mexico, all of Central America, and the whole Caribbean) can be
+# split into three epidemiologically distinct demes.
+#
+# Countries NOT listed here keep their Nextstrain region as their deme.
+# Note that Trinidad and Tobago and French Guiana are deliberately absent:
+# Nextstrain places them in South America and they are left there.
+#
+# country<TAB>deme
+
+# --- Central America -------------------------------------------------------
+Belize	Central America
+Costa Rica	Central America
+El Salvador	Central America
+Guatemala	Central America
+Honduras	Central America
+Nicaragua	Central America
+Panama	Central America
+
+# --- Caribbean -------------------------------------------------------------
+Anguilla	Caribbean
+Antigua and Barbuda	Caribbean
+Aruba	Caribbean
+Bahamas	Caribbean
+Barbados	Caribbean
+Bonaire	Caribbean
+British Virgin Islands	Caribbean
+Cayman Islands	Caribbean
+Cuba	Caribbean
+Curacao	Caribbean
+Dominica	Caribbean
+Dominican Republic	Caribbean
+Grenada	Caribbean
+Guadeloupe	Caribbean
+Haiti	Caribbean
+Jamaica	Caribbean
+Martinique	Caribbean
+Montserrat	Caribbean
+Puerto Rico	Caribbean
+Saba	Caribbean
+Saint Barthelemy	Caribbean
+Saint Kitts and Nevis	Caribbean
+Saint Lucia	Caribbean
+Saint Martin	Caribbean
+Saint Vincent and the Grenadines	Caribbean
+Sint Eustatius	Caribbean
+Sint Maarten	Caribbean
+Turks and Caicos Islands	Caribbean
+US Virgin Islands	Caribbean
+Virgin Islands	Caribbean

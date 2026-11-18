@@ -1,0 +1,328 @@
+"""
+Lean SARS-CoV-2 phylogeography pipeline.
+
+Produces two Auspice datasets from one tree:
+
+  auspice/ncov_deme.json      opens on the deme map
+                              (country inside Southeast Asia, region elsewhere)
+  auspice/ncov_country.json   opens on the standard country-everywhere map
+
+Both carry `deme`, `country` and `region` as geo-resolutions with
+`transmission_lines` on, so either can be switched to the other view in the
+Auspice sidebar.
+
+Run with:
+    snakemake --configfile config.yaml -c 32
+"""
+import json
+
+configfile: "config.yaml"
+
+DATA = config["data_dir"]
+
+
+rule all:
+    input:
+        "auspice/ncov_deme.json",
+        "auspice/ncov_country.json",
+
+
+rule subsample:
+    """Downsample by lineage x country x month, with a focus-country reserve."""
+    input:
+        metadata = f"{DATA}/metadata.tsv.zst",
+        focus = config["deme"]["country_level_countries"],
+        forced = "defaults/force_include_countries.txt",
+    output:
+        metadata = "results/subsampled_metadata.tsv",
+        strains = "results/subsampled_strains.txt",
+    log:
+        "logs/subsample.txt",
+    params:
+        per_cell = config["subsample"]["per_cell"],
+        max_sequences = config["subsample"]["max_sequences"],
+        max_per_country = config["subsample"]["max_per_country"],
+        focus_fraction = config["subsample"]["focus_fraction"],
+        lineage_column = config["subsample"]["lineage_column"],
+    shell:
+        r"""
+        exec 2> >(tee {log:q} >&2)
+        zstd -dc {input.metadata:q} \
+          | python3 scripts/subsample.py \
+              --metadata - \
+              --output-metadata {output.metadata:q} \
+              --output-strains {output.strains:q} \
+              --lineage-column {params.lineage_column:q} \
+              --per-cell {params.per_cell} \
+              --max-sequences {params.max_sequences} \
+              --max-per-country {params.max_per_country} \
+              --focus-countries {input.focus:q} \
+              --focus-fraction {params.focus_fraction} \
+              --force-include-countries {input.forced:q}
+        """
+
+
+rule extract_sequences:
+    """Stream the wanted records out of the compressed aligned FASTA."""
+    input:
+        sequences = f"{DATA}/aligned.fasta.zst",
+        strains = "results/subsampled_strains.txt",
+    output:
+        sequences = "results/subsampled.fasta",
+    log:
+        "logs/extract_sequences.txt",
+    shell:
+        r"""
+        exec 2> >(tee {log:q} >&2)
+        zstd -dc {input.sequences:q} \
+          | python3 scripts/extract-seqs.py \
+              --strains {input.strains:q} --output {output.sequences:q}
+        """
+
+
+rule mask:
+    """Mask the noisy genome ends and the known problematic sites."""
+    input:
+        sequences = "results/subsampled.fasta",
+        sites = config["mask"]["site_file"],
+    output:
+        sequences = "results/masked.fasta",
+    log:
+        "logs/mask.txt",
+    params:
+        start = config["mask"]["from_beginning"],
+        end = config["mask"]["from_end"],
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        # This augur takes a list of 1-indexed sites, not a file; the ncov
+        # site list is short enough to expand on the command line.
+        augur mask \
+            --sequences {input.sequences:q} \
+            --mask-from-beginning {params.start} \
+            --mask-from-end {params.end} \
+            --mask-sites $(grep -v '^#' {input.sites:q} | tr '\n' ' ') \
+            --output {output.sequences:q}
+        """
+
+
+rule tree:
+    input:
+        alignment = "results/masked.fasta",
+    output:
+        tree = "results/tree-raw.nwk",
+    log:
+        "logs/tree.txt",
+    threads: 32
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        augur tree \
+            --alignment {input.alignment:q} \
+            --output {output.tree:q} \
+            --tree-builder-args="-ninit 2 -n 2 -me 0.05" \
+            --nthreads {threads}
+        """
+
+
+rule refine:
+    input:
+        tree = "results/tree-raw.nwk",
+        alignment = "results/masked.fasta",
+        metadata = "results/metadata_with_deme.tsv",
+    output:
+        tree = "results/tree.nwk",
+        node_data = "results/branch-lengths.json",
+    log:
+        "logs/refine.txt",
+    params:
+        clock_rate = config["refine"]["clock_rate"],
+        clock_std_dev = config["refine"]["clock_std_dev"],
+        clock_filter_iqd = config["refine"]["clock_filter_iqd"],
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        augur refine \
+            --tree {input.tree:q} \
+            --alignment {input.alignment:q} \
+            --metadata {input.metadata:q} \
+            --output-tree {output.tree:q} \
+            --output-node-data {output.node_data:q} \
+            --timetree \
+            --clock-rate {params.clock_rate} \
+            --clock-std-dev {params.clock_std_dev} \
+            --coalescent skyline \
+            --date-inference marginal \
+            --date-confidence \
+            --clock-filter-iqd {params.clock_filter_iqd}
+        """
+
+
+rule add_deme:
+    """Country demes inside Southeast Asia, region demes everywhere else."""
+    input:
+        metadata = "results/subsampled_metadata.tsv",
+        countries = config["deme"]["country_level_countries"],
+        overrides = config["deme"]["overrides"],
+    output:
+        metadata = "results/metadata_with_deme.tsv",
+    log:
+        "logs/add_deme.txt",
+    params:
+        column = config["deme"]["column"],
+    shell:
+        r"""
+        exec 2> >(tee {log:q} >&2)
+        python3 scripts/add-deme.py \
+            --metadata {input.metadata:q} \
+            --country-level-countries {input.countries:q} \
+            --overrides {input.overrides:q} \
+            --deme-column {params.column:q} \
+            --output {output.metadata:q}
+        """
+
+
+rule deme_lat_longs:
+    """Coordinates for every deme; fails rather than silently dropping one."""
+    input:
+        metadata = "results/metadata_with_deme.tsv",
+        extra = config["deme"]["extra_lat_longs"],
+    output:
+        lat_longs = "results/lat_longs_deme.tsv",
+    log:
+        "logs/deme_lat_longs.txt",
+    params:
+        column = config["deme"]["column"],
+    shell:
+        r"""
+        exec 2> >(tee {log:q} >&2)
+        python3 scripts/make-deme-lat-longs.py \
+            --metadata {input.metadata:q} \
+            --extra-lat-longs {input.extra:q} \
+            --deme-column {params.column:q} \
+            --output {output.lat_longs:q}
+        """
+
+
+rule traits:
+    """Ancestral states for the geographic traits -> the transmission lines."""
+    input:
+        tree = "results/tree.nwk",
+        metadata = "results/metadata_with_deme.tsv",
+    output:
+        node_data = "results/traits.json",
+    log:
+        "logs/traits.txt",
+    params:
+        columns = config["traits"]["columns"],
+        bias = config["traits"]["sampling_bias_correction"],
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        augur traits \
+            --tree {input.tree:q} \
+            --metadata {input.metadata:q} \
+            --output {output.node_data:q} \
+            --columns {params.columns} \
+            --confidence \
+            --sampling-bias-correction {params.bias}
+        """
+
+
+rule ancestral:
+    input:
+        tree = "results/tree.nwk",
+        alignment = "results/masked.fasta",
+    output:
+        node_data = "results/nt-muts.json",
+    log:
+        "logs/ancestral.txt",
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        augur ancestral \
+            --tree {input.tree:q} \
+            --alignment {input.alignment:q} \
+            --output-node-data {output.node_data:q} \
+            --inference joint
+        """
+
+
+rule auspice_config:
+    output:
+        config = "results/auspice_config.json",
+    run:
+        data = {
+            "title": "SARS-CoV-2 phylogeography: Southeast Asia in a global context",
+            "maintainers": [{"name": "k9je"}],
+            "build_url": "https://github.com/k9je/nextstrain_ncov",
+            "colorings": [
+                {"key": "deme", "title": "Deme (country in SE Asia, region elsewhere)",
+                 "type": "categorical"},
+                {"key": "country", "title": "Country", "type": "categorical"},
+                {"key": "region", "title": "Region", "type": "categorical"},
+                {"key": "clade_nextstrain", "title": "Nextstrain clade",
+                 "type": "categorical"},
+                {"key": "Nextclade_pango", "title": "Pango lineage",
+                 "type": "categorical"},
+                {"key": "clade_who", "title": "WHO label", "type": "categorical"},
+                {"key": "num_date", "title": "Date", "type": "continuous"},
+            ],
+            "geo_resolutions": ["deme", "country", "region"],
+            "display_defaults": {
+                "map_triplicate": True,
+                "color_by": "deme",
+                "geo_resolution": "deme",
+                "transmission_lines": True,
+                "distance_measure": "num_date",
+            },
+            "filters": ["deme", "country", "region", "clade_nextstrain"],
+            "panels": ["tree", "map", "entropy"],
+        }
+        with open(output.config, "w") as fh:
+            json.dump(data, fh, indent=2)
+
+
+rule export:
+    input:
+        tree = "results/tree.nwk",
+        metadata = "results/metadata_with_deme.tsv",
+        branch_lengths = "results/branch-lengths.json",
+        traits = "results/traits.json",
+        nt_muts = "results/nt-muts.json",
+        lat_longs = "results/lat_longs_deme.tsv",
+        auspice_config = "results/auspice_config.json",
+    output:
+        auspice = "auspice/ncov_deme.json",
+    log:
+        "logs/export.txt",
+    shell:
+        r"""
+        exec &> >(tee {log:q})
+        augur export v2 \
+            --tree {input.tree:q} \
+            --metadata {input.metadata:q} \
+            --node-data {input.branch_lengths:q} {input.traits:q} {input.nt_muts:q} \
+            --lat-longs {input.lat_longs:q} \
+            --auspice-config {input.auspice_config:q} \
+            --include-root-sequence-inline \
+            --minify-json \
+            --output {output.auspice:q}
+        """
+
+
+rule export_country_view:
+    """Same tree and traits, opening on the country-everywhere map instead."""
+    input:
+        auspice = "auspice/ncov_deme.json",
+    output:
+        auspice = "auspice/ncov_country.json",
+    run:
+        with open(input.auspice) as fh:
+            data = json.load(fh)
+        defaults = data.setdefault("meta", {}).setdefault("display_defaults", {})
+        defaults["geo_resolution"] = "country"
+        defaults["color_by"] = "country"
+        defaults["transmission_lines"] = True
+        with open(output.auspice, "w") as fh:
+            json.dump(data, fh)

@@ -1,0 +1,42 @@
+# Lean SARS-CoV-2 phylogeography pipeline (see analysis/README.md).
+#
+# The full ncov workflow is built for routine global builds with GISAID
+# credentials and a large compute budget. This is a much smaller, transparent
+# pipeline aimed at one question: where did lineages move between demes, with
+# Singapore and Southeast Asia in focus.
+
+data_dir: "/hpc/home/ansellim/k9_private/nextstrain/ncov_data"
+
+subsample:
+  per_cell: 1                 # genomes per (lineage, country, month)
+  max_sequences: 4000
+  max_per_country: 300        # stop Thailand/USA dominating
+  focus_fraction: 0.45
+  lineage_column: "Nextclade_pango"
+
+deme:
+  column: "deme"
+  # Country-level demes inside Southeast Asia, region-level everywhere else.
+  country_level_countries: "defaults/sea_countries.txt"
+  overrides: "defaults/deme_overrides.tsv"
+  extra_lat_longs: "defaults/lat_longs_deme_extra.tsv"
+
+mask:
+  from_beginning: 100
+  from_end: 50
+  site_file: "../defaults/sites_ignored_for_tree_topology.txt"
+
+refine:
+  clock_rate: 0.0008
+  clock_std_dev: 0.0004
+  clock_filter_iqd: 4
+
+traits:
+  columns: "deme country region"
+  sampling_bias_correction: 3
+
+# Pie slices are coloured by this; Nextstrain clade is coarser and far more
+# legible than the ~900 Pango lineages used for subsampling.
+lineage_key: "clade_nextstrain"
+
+focus_deme: "Singapore"
